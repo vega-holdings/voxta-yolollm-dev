@@ -1,4 +1,5 @@
 using Voxta.Abstractions.Registration;
+using Voxta.Abstractions.Encryption;
 using Voxta.Model.Shared.Forms;
 using Voxta.Modules.YoloLLM.Configuration;
 
@@ -25,8 +26,14 @@ internal record YoloLlmSettings
 
 internal static class YoloLlmSettingsLoader
 {
-    public static YoloLlmSettings Load(ISettingsSource moduleConfiguration, ISettingsSource serviceSettings)
+    public static YoloLlmSettings Load(
+        ISettingsSource moduleConfiguration,
+        ISettingsSource serviceSettings,
+        ILocalEncryptionProvider localEncryptionProvider)
     {
+        var encryptedApiKey = moduleConfiguration.GetRequired(ModuleConfigurationProvider.ApiKey);
+        var apiKey = TryDecrypt(localEncryptionProvider, encryptedApiKey);
+
         var moduleModel = moduleConfiguration.GetRequired(ModuleConfigurationProvider.Model);
         var moduleTemperature = (double)(moduleConfiguration.GetOptional((FormNumberFieldBase<double>)ModuleConfigurationProvider.Temperature)
             ?? ModuleConfigurationProvider.Temperature.DefaultValue
@@ -97,7 +104,7 @@ internal static class YoloLlmSettingsLoader
 
         return new YoloLlmSettings
         {
-            ApiKey = moduleConfiguration.GetRequired(ModuleConfigurationProvider.ApiKey),
+            ApiKey = apiKey,
             BaseUrl = moduleConfiguration.GetRequired(ModuleConfigurationProvider.BaseUrl),
             Model = model,
             Temperature = temperature,
@@ -113,5 +120,18 @@ internal static class YoloLlmSettingsLoader
             MemoryExtractionPromptPath = memoryExtractionPromptPath,
             LogLifecycleEvents = logLifecycleEvents,
         };
+    }
+
+    private static string TryDecrypt(ILocalEncryptionProvider localEncryptionProvider, string value)
+    {
+        if (string.IsNullOrEmpty(value)) return value;
+        try
+        {
+            return localEncryptionProvider.Decrypt(value);
+        }
+        catch
+        {
+            return value;
+        }
     }
 }

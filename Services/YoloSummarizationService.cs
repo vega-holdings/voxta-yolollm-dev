@@ -6,6 +6,7 @@ using Voxta.Abstractions.Chats.Objects;
 using Voxta.Abstractions.Chats.Objects.Characters;
 using Voxta.Abstractions.Chats.Objects.Chats;
 using Voxta.Abstractions.Diagnostics;
+using Voxta.Abstractions.Encryption;
 using Voxta.Abstractions.Model;
 using Voxta.Abstractions.Prompting;
 using Voxta.Abstractions.Services;
@@ -20,9 +21,11 @@ namespace Voxta.Modules.YoloLLM.Services;
 
 public class YoloSummarizationService(
     IHttpClientFactory httpClientFactory,
+    ILocalEncryptionProvider localEncryptionProvider,
     ILogger<YoloSummarizationService> logger
 ) : ServiceBase(logger), ISummarizationService
 {
+    private readonly ILocalEncryptionProvider _localEncryptionProvider = localEncryptionProvider;
     private YoloLlmSettings? _settings;
     private YoloLlmClient? _client;
     private string? _summaryPrompt;
@@ -42,7 +45,7 @@ public class YoloSummarizationService(
 
     protected override Task InitializeAsync(CancellationToken cancellationToken)
     {
-        _settings = YoloLlmSettingsLoader.Load(ModuleConfiguration, ServiceSettings);
+        _settings = YoloLlmSettingsLoader.Load(ModuleConfiguration, ServiceSettings, _localEncryptionProvider);
         _client = new YoloLlmClient(httpClientFactory, logger, _settings);
         _summaryPrompt = LoadPromptSafely(_settings.SummaryPromptPath, "summary");
         _memoryExtractionPrompt = LoadPromptSafely(_settings.MemoryExtractionPromptPath, "memory-extraction");

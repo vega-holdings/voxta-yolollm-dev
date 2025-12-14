@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Voxta.Abstractions.Chats.Objects.Characters;
 using Voxta.Abstractions.Chats.Objects.Chats;
 using Voxta.Abstractions.Diagnostics;
+using Voxta.Abstractions.Encryption;
 using Voxta.Abstractions.Prompting;
 using Voxta.Abstractions.Services;
 using Voxta.Abstractions.Services.TextGen;
@@ -16,9 +17,11 @@ namespace Voxta.Modules.YoloLLM.Services;
 
 public class YoloTextGenService(
     IHttpClientFactory httpClientFactory,
+    ILocalEncryptionProvider localEncryptionProvider,
     ILogger<YoloTextGenService> logger
 ) : ServiceBase(logger), ITextGenService
 {
+    private readonly ILocalEncryptionProvider _localEncryptionProvider = localEncryptionProvider;
     private YoloLlmSettings? _settings;
     private YoloLlmClient? _client;
     private string? _replySystemPrompt;
@@ -43,7 +46,7 @@ public class YoloTextGenService(
 
     protected override Task InitializeAsync(CancellationToken cancellationToken)
     {
-        _settings = YoloLlmSettingsLoader.Load(ModuleConfiguration, ServiceSettings);
+        _settings = YoloLlmSettingsLoader.Load(ModuleConfiguration, ServiceSettings, _localEncryptionProvider);
         _client = new YoloLlmClient(httpClientFactory, logger, _settings);
         _replySystemPrompt = LoadPromptSafely(_settings.ReplySystemPromptPath, "reply");
         return Task.CompletedTask;
