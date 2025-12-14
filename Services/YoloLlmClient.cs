@@ -1,0 +1,76 @@
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Voxta.Abstractions.Services.TextGen;
+using Voxta.Model.Shared;
+
+namespace Voxta.Modules.YoloLLM.Services;
+
+internal class YoloLlmClient(
+    IHttpClientFactory httpClientFactory,
+    ILogger logger,
+    YoloLlmSettings settings)
+{
+    public async Task<string> GenerateAsync(TextGenGenerateRequest request, CancellationToken cancellationToken)
+    {
+        var httpClient = httpClientFactory.CreateClient(nameof(YoloLlmClient));
+        using var message = new HttpRequestMessage(HttpMethod.Post, settings.BaseUrl);
+        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
+
+        var payload = BuildPayload(request, out var usedMaxTokens);
+        var json = JsonSerializer.Serialize(payload);
+        message.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        logger.LogDebug("Sending LLM request to {Url} with max_tokens={MaxTokens}", settings.BaseUrl, usedMaxTokens);
+
+        using var response = await httpClient.SendAsync(message, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            logger.LogError("LLM call failed: {Status} {Reason} {Body}", (int)response.StatusCode, response.ReasonPhrase, body);
+            response.EnsureSuccessStatusCode();
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+
+        if (!document.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
+        {
+            logger.LogWarning("LLM response missing choices, returning empty string");
+            return string.Empty;
+        }
+
+        var content = choices[0].GetProperty("message").GetProperty("content").GetString();
+        return content?.Trim() ?? string.Empty;
+    }
+
+    private object BuildPayload(TextGenGenerateRequest request, out int maxNewTokens)
+    {
+        maxNewTokens = request.MaxNewTokens > 0
+            ? Math.Min(request.MaxNewTokens, settings.MaxNewTokens)
+            : settings.MaxNewTokens;
+
+        return new
+        {
+            model = settings.Model,
+            temperature = settings.Temperature,
+            max_tokens = maxNewTokens,
+            messages = request.Messages.Select(m => new
+            {
+                role = MapRole(m.Role),
+                content = m.Value
+            }),
+            stop = request.StoppingStrings.Length > 0 ? request.StoppingStrings : null
+        };
+    }
+
+    private static string MapRole(ChatMessageRole role) =>
+        role switch
+        {
+            ChatMessageRole.System => "system",
+            ChatMessageRole.Assistant => "assistant",
+            ChatMessageRole.User => "user",
+            _ => "user"
+        };
+}
