@@ -12,15 +12,14 @@ internal class YoloLlmClient(
     ILogger logger,
     YoloLlmSettings settings)
 {
+    private bool _didWarnKeyNormalized;
+
     public async Task<string> GenerateAsync(TextGenGenerateRequest request, CancellationToken cancellationToken)
     {
         var httpClient = httpClientFactory.CreateClient(nameof(YoloLlmClient));
         using var message = new HttpRequestMessage(HttpMethod.Post, settings.BaseUrl);
-        var apiKey = (settings.ApiKey ?? string.Empty).Trim();
-        if (apiKey.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-        {
-            apiKey = apiKey.Substring("Bearer ".Length).Trim();
-        }
+
+        var apiKey = NormalizeApiKey(settings.ApiKey);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             logger.LogError("YOLO LLM ApiKey is empty; check module configuration.");
@@ -54,6 +53,46 @@ internal class YoloLlmClient(
 
         var content = choices[0].GetProperty("message").GetProperty("content").GetString();
         return content?.Trim() ?? string.Empty;
+    }
+
+    private void LogKeyNormalization(string originalKey, string normalizedKey)
+    {
+        logger.LogWarning("YOLO LLM ApiKey appears to include extra wrapping/whitespace; normalized key length {Before}->{After}. " +
+                          "Ensure you paste the raw OpenRouter token (no quotes, no Bearer prefix).",
+            originalKey.Length, normalizedKey.Length);
+    }
+
+    private string NormalizeApiKey(string? apiKey)
+    {
+        var original = apiKey ?? string.Empty;
+        var key = original.Trim();
+
+        if (key.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            key = key.Substring("Bearer ".Length).Trim();
+        }
+
+        // Common paste formats: "sk-..." or 'sk-...' or `sk-...`
+        if (key.Length >= 2)
+        {
+            var first = key[0];
+            var last = key[^1];
+            if ((first == '"' && last == '"') || (first == '\'' && last == '\'') || (first == '`' && last == '`'))
+            {
+                key = key.Substring(1, key.Length - 2).Trim();
+            }
+        }
+
+        // Remove any remaining whitespace (newlines from copy/paste)
+        key = string.Concat(key.Where(c => !char.IsWhiteSpace(c)));
+
+        if (!_didWarnKeyNormalized && !string.Equals(original, key, StringComparison.Ordinal))
+        {
+            LogKeyNormalization(original, key);
+            _didWarnKeyNormalized = true;
+        }
+
+        return key;
     }
 
     private object BuildPayload(TextGenGenerateRequest request, out int maxNewTokens)
