@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 using System.Diagnostics;
 using System.Collections.Concurrent;
@@ -243,7 +244,7 @@ public class YoloSummarizationService(
             observer?.AddToken(new LLMOutputToken(response));
             observer?.Done();
 
-            var graphJsonLine = TryBuildGraphJsonMemoryLine(response);
+            var graphJsonLine = TryBuildGraphJsonMemoryLine(chat, response);
             if (graphJsonLine == null) return;
 
             var queue = _pendingGraphJsonByChat.GetOrAdd(chat.ChatId, _ => new ConcurrentQueue<string>());
@@ -303,7 +304,7 @@ public class YoloSummarizationService(
         }
     }
 
-    private static string? TryBuildGraphJsonMemoryLine(string response)
+    private static string? TryBuildGraphJsonMemoryLine(IChatInferenceData chat, string response)
     {
         if (string.IsNullOrWhiteSpace(response)) return null;
 
@@ -316,16 +317,70 @@ public class YoloSummarizationService(
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
-            var entitiesCount = root.TryGetProperty("entities", out var ents) && ents.ValueKind == JsonValueKind.Array
-                ? ents.GetArrayLength()
-                : 0;
-            var relationsCount = root.TryGetProperty("relations", out var rels) && rels.ValueKind == JsonValueKind.Array
-                ? rels.GetArrayLength()
-                : 0;
+            var hasEntities = root.TryGetProperty("entities", out var ents) && ents.ValueKind == JsonValueKind.Array;
+            var hasRelations = root.TryGetProperty("relations", out var rels) && rels.ValueKind == JsonValueKind.Array;
+            var entitiesCount = hasEntities ? ents.GetArrayLength() : 0;
+            var relationsCount = hasRelations ? rels.GetArrayLength() : 0;
 
             if (entitiesCount == 0 && relationsCount == 0) return null;
 
-            var compact = JsonSerializer.Serialize(root);
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream))
+            {
+                writer.WriteStartObject();
+
+                // Meta is injected by the module (not the LLM) so GraphMemory can scope graph writes
+                // even when Voxta integrates the same memories across multiple character books.
+                writer.WritePropertyName("meta");
+                writer.WriteStartObject();
+
+                writer.WriteString("chatId", chat.ChatId);
+                writer.WriteString("sessionId", chat.SessionId);
+
+                writer.WritePropertyName("user");
+                writer.WriteStartObject();
+                writer.WriteString("id", chat.User.Id);
+                writer.WriteString("name", chat.User.Name);
+                writer.WriteEndObject();
+
+                writer.WritePropertyName("characters");
+                writer.WriteStartArray();
+                foreach (var c in chat.GetCharacters())
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("id", c.Id);
+                    writer.WriteString("name", c.Name);
+                    writer.WriteString("role", c.Role.ToString());
+                    if (!string.IsNullOrWhiteSpace(c.ScenarioRole))
+                    {
+                        writer.WriteString("scenarioRole", c.ScenarioRole);
+                    }
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+
+                writer.WriteEndObject(); // meta
+
+                writer.WritePropertyName("entities");
+                if (hasEntities) ents.WriteTo(writer);
+                else
+                {
+                    writer.WriteStartArray();
+                    writer.WriteEndArray();
+                }
+
+                writer.WritePropertyName("relations");
+                if (hasRelations) rels.WriteTo(writer);
+                else
+                {
+                    writer.WriteStartArray();
+                    writer.WriteEndArray();
+                }
+
+                writer.WriteEndObject();
+            }
+
+            var compact = Encoding.UTF8.GetString(stream.ToArray());
             return $"GRAPH_JSON: {compact}";
         }
         catch (JsonException)

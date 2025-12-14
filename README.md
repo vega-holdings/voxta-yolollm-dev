@@ -7,7 +7,7 @@ Experiment to ship a Voxta module that brings its own OpenAI-compatible LLM clie
   - Implements `ITextGenService` and `ISummarizationService`:
   - Reply/story generation uses Voxta prompt builder requests and returns a single token chunk.
   - Summarization/memory extraction uses prompt builder requests; memory extraction output is parsed from JSON array, `<memories>...</memories>`, or newline list.
-  - Graph extraction (separate call): during summarization, runs an additional prompt to produce JSON `{entities, relations}` and emits it as a `GRAPH_JSON:` memory item (intended for `GraphMemory` to ingest).
+  - Graph extraction (separate call): during summarization, runs an additional prompt to produce JSON `{entities, relations}` and emits it as a `GRAPH_JSON:` memory item (includes `meta.chatId/sessionId/user/characters` for scoping; intended for `GraphMemory` to ingest).
   - Memory merge is currently a no-op (returns `MemoryMergeResult.Empty`).
 - Tokenization uses `NullTokenizer`; streaming is emulated by returning one `LLMOutputToken` with the full response.
 

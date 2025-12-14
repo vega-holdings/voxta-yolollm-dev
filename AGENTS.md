@@ -29,7 +29,7 @@
 - TextGen: single-shot generation (no true streaming) via chat-completions; returns one `LLMOutputToken` chunk.
 - Summarization: uses builder requests; extraction output parsed from JSON array or newline list; merge is a no-op.
 - Memory extraction parsing supports JSON arrays, default Voxta `<memories>...</memories>` blocks, and newline lists.
-- Graph extraction: during summarization, YOLOLLM runs a separate LLM call (prompt `GraphExtractionPromptPath`) and queues a `GRAPH_JSON:` memory item for `GraphMemory` to ingest.
+- Graph extraction: during summarization, YOLOLLM runs a separate LLM call (prompt `GraphExtractionPromptPath`) and queues a `GRAPH_JSON:` memory item for `GraphMemory` to ingest (injects `meta.chatId/sessionId/user/characters` so GraphMemory can scope graph writes).
 - Inference logging: uses `IInferenceLoggersManager` so calls should show up under Diagnostics (Summarization/MemoryExtraction/GraphExtraction/TextGen/StoryGen).
 - Tokenizer: `NullTokenizer`.
 
