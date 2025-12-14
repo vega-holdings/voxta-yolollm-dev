@@ -31,7 +31,7 @@ public class ModuleConfigurationProvider(
     {
         Name = "ApiKey",
         Label = "API Key",
-        Text = "Bearer token for the OpenAI-compatible endpoint.",
+        Text = "API key/token for the OpenAI-compatible endpoint (paste the raw token; no quotes; no `Bearer ` prefix).",
         Required = true,
     };
 
@@ -39,7 +39,7 @@ public class ModuleConfigurationProvider(
     {
         Name = "BaseUrl",
         Label = "Base URL",
-        Text = "Chat completion endpoint (OpenAI-compatible).",
+        Text = "Chat completion endpoint (OpenAI-compatible). Example (OpenRouter): `https://openrouter.ai/api/v1/chat/completions`",
         DefaultValue = "https://api.openai.com/v1/chat/completions",
         Placeholder = "https://your-endpoint/v1/chat/completions",
     };
@@ -48,7 +48,7 @@ public class ModuleConfigurationProvider(
     {
         Name = "Model",
         Label = "Model",
-        Text = "Model id for the LLM.",
+        Text = "Model id for the LLM (example OpenRouter: `google/gemini-2.5-flash`).",
         DefaultValue = "gpt-4o-mini",
     };
 
