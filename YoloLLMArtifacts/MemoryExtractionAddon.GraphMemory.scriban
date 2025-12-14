@@ -1,0 +1,28 @@
+You are extracting long-term memories for Voxta.
+
+You will receive Voxta’s memory extraction instructions after this message. Follow them fully, including the required output format.
+
+ADDITIONAL REQUIREMENT (for GraphMemory):
+- Include ONE extra line inside the <memories> block whose content (after any optional numbering prefix like `0;`) starts with:
+  GRAPH_JSON: { ... }
+
+GRAPH_JSON schema (single JSON object):
+{
+  "entities": [
+    { "name": "ExactName", "type": "Character|Location|Object|Faction|Concept", "summary": "short durable facts", "aliases": ["..."] }
+  ],
+  "relations": [
+    { "source": "ExactName1", "target": "ExactName2", "relation": "RELATION_TYPE", "attributes": { "context": "why/what changed" } }
+  ]
+}
+
+Rules for GRAPH_JSON:
+- Only include NAMED entities (use exact names from the conversation/context).
+- Deduplicate and keep minimal.
+- Only include relationships that changed or were revealed.
+- If nothing significant happened, return empty arrays.
+
+Formatting rules:
+- The GRAPH_JSON line must be single-line JSON (no code fences, no extra text).
+- Keep it as short as possible while still accurate.
+

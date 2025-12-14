@@ -278,7 +278,6 @@ public class YoloSummarizationService(
         var lines = text
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(l => !string.IsNullOrWhiteSpace(l))
-            .Where(l => !l.StartsWith("GRAPH_JSON:", StringComparison.OrdinalIgnoreCase))
             .Where(l => !l.Equals("<memories>", StringComparison.OrdinalIgnoreCase))
             .Where(l => !l.Equals("</memories>", StringComparison.OrdinalIgnoreCase))
             .ToArray();
@@ -328,7 +327,6 @@ public class YoloSummarizationService(
     {
         var trimmed = line.Trim();
         if (string.IsNullOrWhiteSpace(trimmed)) return null;
-        if (trimmed.StartsWith("GRAPH_JSON:", StringComparison.OrdinalIgnoreCase)) return null;
 
         // Common formats from Voxta prompts: "1; text" or "1: text"
         var semi = trimmed.IndexOf(';');

@@ -10,6 +10,7 @@
 - Summarization system: `SummaryPromptPath` (optional file path).
 - Memory extraction system: `MemoryExtractionPromptPath` (optional file path).
 - If an override path is empty or missing, it uses the server’s default templates (whatever prompt builder resolves).
+- Prompt add-on templates are kept in `YoloLLMArtifacts/` and are meant to be copied to `Resources/Prompts/Default/en/YoloLLM/` in the server bundle.
 
 ## Configuration Fields (UI)
 - Auth/endpoint: `ApiKey` (secret), `BaseUrl`, `Model`
@@ -26,7 +27,8 @@
 ## Behavior
 - TextGen: single-shot generation (no true streaming) via chat-completions; returns one `LLMOutputToken` chunk.
 - Summarization: uses builder requests; extraction output parsed from JSON array or newline list; merge is a no-op.
-- Memory extraction parsing also supports default Voxta `<memories>...</memories>` blocks and ignores `GRAPH_JSON:` lines.
+- Memory extraction parsing supports JSON arrays, default Voxta `<memories>...</memories>` blocks, and newline lists.
+- If the model emits a line starting with `GRAPH_JSON:`, it is passed through as a memory item (intended for the `GraphMemory` provider to ingest and discard from lore).
 - Tokenizer: `NullTokenizer`.
 
 ## Limitations / TODO

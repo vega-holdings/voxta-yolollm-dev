@@ -164,7 +164,7 @@ public class ModuleConfigurationProvider(
         Name = "ReplySystemPromptPath",
         Label = "Reply System Prompt (optional)",
         Text = "File path to a system prompt that will be prepended for chat replies/story.",
-        Placeholder = "Resources/Prompts/Default/en/Reply/SystemPrompt.scriban",
+        Placeholder = "Resources/Prompts/Default/en/YoloLLM/ReplySystemAddon.scriban",
     };
 
     public static readonly FormTextField SummaryPromptPath = new()
@@ -172,7 +172,7 @@ public class ModuleConfigurationProvider(
         Name = "SummaryPromptPath",
         Label = "Summarization Prompt (optional)",
         Text = "File path to a system prompt that will be prepended for summarization.",
-        Placeholder = "Resources/Prompts/Default/en/Summarization/MemoryExtractionSystemMessage.scriban",
+        Placeholder = "Resources/Prompts/Default/en/YoloLLM/SummarizationAddon.scriban",
     };
 
     public static readonly FormTextField MemoryExtractionPromptPath = new()
@@ -180,7 +180,7 @@ public class ModuleConfigurationProvider(
         Name = "MemoryExtractionPromptPath",
         Label = "Memory Extraction Prompt (optional)",
         Text = "File path to a system prompt that will be prepended for memory extraction.",
-        Placeholder = "Resources/Prompts/Default/en/Summarization/MemoryExtractionSystemMessage.scriban",
+        Placeholder = "Resources/Prompts/Default/en/YoloLLM/MemoryExtractionAddon.scriban",
     };
 
     public Task<FormField[]> GetModuleConfigurationFieldsAsync(
