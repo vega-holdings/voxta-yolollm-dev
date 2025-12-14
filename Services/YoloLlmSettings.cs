@@ -25,27 +25,93 @@ internal record YoloLlmSettings
 
 internal static class YoloLlmSettingsLoader
 {
-    public static YoloLlmSettings Load(ISettingsSource moduleConfiguration)
+    public static YoloLlmSettings Load(ISettingsSource moduleConfiguration, ISettingsSource serviceSettings)
     {
+        var moduleModel = moduleConfiguration.GetRequired(ModuleConfigurationProvider.Model);
+        var moduleTemperature = (double)(moduleConfiguration.GetOptional((FormNumberFieldBase<double>)ModuleConfigurationProvider.Temperature)
+            ?? ModuleConfigurationProvider.Temperature.DefaultValue
+            ?? 0.7);
+        var moduleMaxNewTokens = moduleConfiguration.GetRequired((FormNumberFieldBase<int>)ModuleConfigurationProvider.MaxNewTokens);
+        var moduleMaxWindowTokens = moduleConfiguration.GetRequired((FormNumberFieldBase<int>)ModuleConfigurationProvider.MaxWindowTokens);
+        var moduleMaxMemoryTokens = moduleConfiguration.GetRequired((FormNumberFieldBase<int>)ModuleConfigurationProvider.MaxMemoryTokens);
+        var moduleMaxSummaryTokens = moduleConfiguration.GetRequired((FormNumberFieldBase<int>)ModuleConfigurationProvider.MaxSummaryTokens);
+        var moduleSummarizationDigestRatio = moduleConfiguration.GetRequired((FormNumberFieldBase<double>)ModuleConfigurationProvider.SummarizationDigestRatio);
+        var moduleSummarizationTriggerMessagesBuffer = moduleConfiguration.GetRequired((FormNumberFieldBase<double>)ModuleConfigurationProvider.SummarizationTriggerMessagesBuffer);
+        var moduleKeepLastMessages = moduleConfiguration.GetRequired((FormNumberFieldBase<int>)ModuleConfigurationProvider.KeepLastMessages);
+        var moduleReplySystemPromptPath = moduleConfiguration.GetOptional(ModuleConfigurationProvider.ReplySystemPromptPath);
+        var moduleSummaryPromptPath = moduleConfiguration.GetOptional(ModuleConfigurationProvider.SummaryPromptPath);
+        var moduleMemoryExtractionPromptPath = moduleConfiguration.GetOptional(ModuleConfigurationProvider.MemoryExtractionPromptPath);
+        var moduleLogLifecycleEvents = moduleConfiguration.GetRequired(ModuleConfigurationProvider.LogLifecycleEvents);
+
+        var model = serviceSettings.HasValue(Configuration.ServiceSettingsProvider.Model)
+            ? serviceSettings.GetRequired(Configuration.ServiceSettingsProvider.Model)
+            : moduleModel;
+
+        var temperature = serviceSettings.HasValue((FormNumberFieldBase<double>)Configuration.ServiceSettingsProvider.Temperature)
+            ? serviceSettings.GetRequired((FormNumberFieldBase<double>)Configuration.ServiceSettingsProvider.Temperature)
+            : moduleTemperature;
+
+        var maxNewTokens = serviceSettings.HasValue((FormNumberFieldBase<int>)Configuration.ServiceSettingsProvider.MaxNewTokens)
+            ? serviceSettings.GetRequired((FormNumberFieldBase<int>)Configuration.ServiceSettingsProvider.MaxNewTokens)
+            : moduleMaxNewTokens;
+
+        var maxWindowTokens = serviceSettings.HasValue((FormNumberFieldBase<int>)Configuration.ServiceSettingsProvider.MaxWindowTokens)
+            ? serviceSettings.GetRequired((FormNumberFieldBase<int>)Configuration.ServiceSettingsProvider.MaxWindowTokens)
+            : moduleMaxWindowTokens;
+
+        var maxMemoryTokens = serviceSettings.HasValue((FormNumberFieldBase<int>)Configuration.ServiceSettingsProvider.MaxMemoryTokens)
+            ? serviceSettings.GetRequired((FormNumberFieldBase<int>)Configuration.ServiceSettingsProvider.MaxMemoryTokens)
+            : moduleMaxMemoryTokens;
+
+        var maxSummaryTokens = serviceSettings.HasValue((FormNumberFieldBase<int>)Configuration.ServiceSettingsProvider.MaxSummaryTokens)
+            ? serviceSettings.GetRequired((FormNumberFieldBase<int>)Configuration.ServiceSettingsProvider.MaxSummaryTokens)
+            : moduleMaxSummaryTokens;
+
+        var summarizationDigestRatio = serviceSettings.HasValue((FormNumberFieldBase<double>)Configuration.ServiceSettingsProvider.SummarizationDigestRatio)
+            ? serviceSettings.GetRequired((FormNumberFieldBase<double>)Configuration.ServiceSettingsProvider.SummarizationDigestRatio)
+            : moduleSummarizationDigestRatio;
+
+        var summarizationTriggerMessagesBuffer = serviceSettings.HasValue((FormNumberFieldBase<double>)Configuration.ServiceSettingsProvider.SummarizationTriggerMessagesBuffer)
+            ? serviceSettings.GetRequired((FormNumberFieldBase<double>)Configuration.ServiceSettingsProvider.SummarizationTriggerMessagesBuffer)
+            : moduleSummarizationTriggerMessagesBuffer;
+
+        var keepLastMessages = serviceSettings.HasValue((FormNumberFieldBase<int>)Configuration.ServiceSettingsProvider.KeepLastMessages)
+            ? serviceSettings.GetRequired((FormNumberFieldBase<int>)Configuration.ServiceSettingsProvider.KeepLastMessages)
+            : moduleKeepLastMessages;
+
+        var replySystemPromptPath = serviceSettings.HasValue(Configuration.ServiceSettingsProvider.ReplySystemPromptPath)
+            ? serviceSettings.GetOptional(Configuration.ServiceSettingsProvider.ReplySystemPromptPath)
+            : moduleReplySystemPromptPath;
+
+        var summaryPromptPath = serviceSettings.HasValue(Configuration.ServiceSettingsProvider.SummaryPromptPath)
+            ? serviceSettings.GetOptional(Configuration.ServiceSettingsProvider.SummaryPromptPath)
+            : moduleSummaryPromptPath;
+
+        var memoryExtractionPromptPath = serviceSettings.HasValue(Configuration.ServiceSettingsProvider.MemoryExtractionPromptPath)
+            ? serviceSettings.GetOptional(Configuration.ServiceSettingsProvider.MemoryExtractionPromptPath)
+            : moduleMemoryExtractionPromptPath;
+
+        var logLifecycleEvents = serviceSettings.HasValue(Configuration.ServiceSettingsProvider.LogLifecycleEvents)
+            ? serviceSettings.GetRequired(Configuration.ServiceSettingsProvider.LogLifecycleEvents)
+            : moduleLogLifecycleEvents;
+
         return new YoloLlmSettings
         {
             ApiKey = moduleConfiguration.GetRequired(ModuleConfigurationProvider.ApiKey),
             BaseUrl = moduleConfiguration.GetRequired(ModuleConfigurationProvider.BaseUrl),
-            Model = moduleConfiguration.GetRequired(ModuleConfigurationProvider.Model),
-            Temperature = (double)(moduleConfiguration.GetOptional((FormNumberFieldBase<double>)ModuleConfigurationProvider.Temperature)
-                ?? ModuleConfigurationProvider.Temperature.DefaultValue
-                ?? 0.7),
-            MaxNewTokens = moduleConfiguration.GetRequired((FormNumberFieldBase<int>)ModuleConfigurationProvider.MaxNewTokens),
-            MaxWindowTokens = moduleConfiguration.GetRequired((FormNumberFieldBase<int>)ModuleConfigurationProvider.MaxWindowTokens),
-            MaxMemoryTokens = moduleConfiguration.GetRequired((FormNumberFieldBase<int>)ModuleConfigurationProvider.MaxMemoryTokens),
-            MaxSummaryTokens = moduleConfiguration.GetRequired((FormNumberFieldBase<int>)ModuleConfigurationProvider.MaxSummaryTokens),
-            SummarizationDigestRatio = moduleConfiguration.GetRequired((FormNumberFieldBase<double>)ModuleConfigurationProvider.SummarizationDigestRatio),
-            SummarizationTriggerMessagesBuffer = moduleConfiguration.GetRequired((FormNumberFieldBase<double>)ModuleConfigurationProvider.SummarizationTriggerMessagesBuffer),
-            KeepLastMessages = moduleConfiguration.GetRequired((FormNumberFieldBase<int>)ModuleConfigurationProvider.KeepLastMessages),
-            ReplySystemPromptPath = moduleConfiguration.GetOptional(ModuleConfigurationProvider.ReplySystemPromptPath),
-            SummaryPromptPath = moduleConfiguration.GetOptional(ModuleConfigurationProvider.SummaryPromptPath),
-            MemoryExtractionPromptPath = moduleConfiguration.GetOptional(ModuleConfigurationProvider.MemoryExtractionPromptPath),
-            LogLifecycleEvents = moduleConfiguration.GetRequired(ModuleConfigurationProvider.LogLifecycleEvents),
+            Model = model,
+            Temperature = temperature,
+            MaxNewTokens = maxNewTokens,
+            MaxWindowTokens = maxWindowTokens,
+            MaxMemoryTokens = maxMemoryTokens,
+            MaxSummaryTokens = maxSummaryTokens,
+            SummarizationDigestRatio = summarizationDigestRatio,
+            SummarizationTriggerMessagesBuffer = summarizationTriggerMessagesBuffer,
+            KeepLastMessages = keepLastMessages,
+            ReplySystemPromptPath = replySystemPromptPath,
+            SummaryPromptPath = summaryPromptPath,
+            MemoryExtractionPromptPath = memoryExtractionPromptPath,
+            LogLifecycleEvents = logLifecycleEvents,
         };
     }
 }

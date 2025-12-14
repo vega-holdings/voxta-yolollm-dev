@@ -42,7 +42,7 @@ public class YoloSummarizationService(
 
     protected override Task InitializeAsync(CancellationToken cancellationToken)
     {
-        _settings = YoloLlmSettingsLoader.Load(ModuleConfiguration);
+        _settings = YoloLlmSettingsLoader.Load(ModuleConfiguration, ServiceSettings);
         _client = new YoloLlmClient(httpClientFactory, logger, _settings);
         _summaryPrompt = LoadPromptSafely(_settings.SummaryPromptPath, "summary");
         _memoryExtractionPrompt = LoadPromptSafely(_settings.MemoryExtractionPromptPath, "memory-extraction");

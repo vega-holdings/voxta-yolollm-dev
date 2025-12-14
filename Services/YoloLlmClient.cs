@@ -16,7 +16,18 @@ internal class YoloLlmClient(
     {
         var httpClient = httpClientFactory.CreateClient(nameof(YoloLlmClient));
         using var message = new HttpRequestMessage(HttpMethod.Post, settings.BaseUrl);
-        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
+        var apiKey = (settings.ApiKey ?? string.Empty).Trim();
+        if (apiKey.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            apiKey = apiKey.Substring("Bearer ".Length).Trim();
+        }
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            logger.LogError("YOLO LLM ApiKey is empty; check module configuration.");
+            throw new InvalidOperationException("YOLO LLM ApiKey is empty.");
+        }
+
+        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
         var payload = BuildPayload(request, out var usedMaxTokens);
         var json = JsonSerializer.Serialize(payload);

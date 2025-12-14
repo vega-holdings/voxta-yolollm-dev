@@ -43,7 +43,7 @@ public class YoloTextGenService(
 
     protected override Task InitializeAsync(CancellationToken cancellationToken)
     {
-        _settings = YoloLlmSettingsLoader.Load(ModuleConfiguration);
+        _settings = YoloLlmSettingsLoader.Load(ModuleConfiguration, ServiceSettings);
         _client = new YoloLlmClient(httpClientFactory, logger, _settings);
         _replySystemPrompt = LoadPromptSafely(_settings.ReplySystemPromptPath, "reply");
         return Task.CompletedTask;

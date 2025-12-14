@@ -18,6 +18,11 @@
 - Observability: `LogLifecycleEvents` (default true) logs start/end for summarization + memory extraction
 - Prompt overrides: `ReplySystemPromptPath`, `SummaryPromptPath`, `MemoryExtractionPromptPath`
 
+## Service Settings Presets (Now Supported)
+- `YoloLLM` now provides a `PresetsProviderType` (`IServiceSettingsProvider`) so you can create multiple **Service Settings** presets in Voxta.
+- Voxta groups Summarization/ActionInference presets under `ServiceTypes.TextGen` (`ServiceTypesExtensions.ForServiceSettings()`), so a single preset applies to both reply generation and summarization for this module.
+- Presets override module defaults when present: model/temperature, token budgets, prompt paths, and summarization knobs.
+
 ## Behavior
 - TextGen: single-shot generation (no true streaming) via chat-completions; returns one `LLMOutputToken` chunk.
 - Summarization: uses builder requests; extraction output parsed from JSON array or newline list; merge is a no-op.
@@ -26,6 +31,6 @@
 
 ## Limitations / TODO
 - No retries/backoff; assumes OpenAI-compatible response shape (`choices[0].message.content`).
-- No per-model preset selection (use prompt override paths instead).
+- Model list is free-text; use presets to switch models/prompts quickly.
 - Memory merge not implemented; just returns `MemoryMergeResult.Empty`.
 - No attachment handling; no multimodal.

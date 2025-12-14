@@ -191,7 +191,7 @@ public class ModuleConfigurationProvider(
     {
         logger.LogDebug("Providing YOLO LLM module configuration fields");
         return Task.FromResult(FormBuilder.Build(
-            FormTitleField.Create("YOLO LLM (TextGen + Summarization)", null, false),
+            FormTitleField.Create("YOLO LLM (TextGen + Summarization)", "Module-wide defaults. Service Settings presets can override these values.", false),
             ApiKey,
             BaseUrl,
             Model,

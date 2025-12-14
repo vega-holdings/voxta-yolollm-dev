@@ -33,6 +33,8 @@ public class VoxtaModule : IVoxtaModule
             Recommended = false,
             ModuleConfigurationProviderType = typeof(ModuleConfigurationProvider),
             ModuleConfigurationFieldsRequiringReload = ModuleConfigurationProvider.FieldsRequiringReload,
+            PresetsProviderType = typeof(ServiceSettingsProvider),
+            PresetsFieldsRequiringReload = ServiceSettingsProvider.FieldsRequiringReload,
         });
 
         builder.AddTextGenService<YoloTextGenService>(ServiceName);
