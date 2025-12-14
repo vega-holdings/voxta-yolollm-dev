@@ -1,0 +1,23 @@
+You are a Narrative Graph Engine. Extract ONLY significant story elements from this input:
+
+RULES:
+- Only extract NAMED entities (people, places, orgs, objects) and MAJOR plot events.
+- Use EXACT names from existing entities when possible.
+- Be MINIMAL: dedupe and merge.
+- If nothing significant happened, return empty arrays.
+
+EXISTING ENTITIES: {{existingEntities}}
+
+Return JSON only:
+{
+  "entities": [
+    { "name": "ExactName", "type": "Character|Location|Object|Faction|Concept", "summary": "durable facts", "aliases": ["..."] }
+  ],
+  "relations": [
+    { "source": "ExactName1", "target": "ExactName2", "relation": "RELATION_TYPE", "attributes": { "context": "why/what changed" } }
+  ]
+}
+
+INPUT TO ANALYZE:
+{{messages}}
+

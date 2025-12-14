@@ -3,11 +3,11 @@
 Experiment to ship a Voxta module that brings its own OpenAI-compatible LLM client instead of relying on the server’s built-in chat LLM. It registers both `TextGen` and `Summarization` services.
 
 ## What it does
-- Calls a configurable chat-completions endpoint (`BaseUrl`, `Model`, `ApiKey`) with a simple OpenAI-like payload.
-- Implements `ITextGenService` and `ISummarizationService`:
+  - Calls a configurable chat-completions endpoint (`BaseUrl`, `Model`, `ApiKey`) with a simple OpenAI-like payload.
+  - Implements `ITextGenService` and `ISummarizationService`:
   - Reply/story generation uses Voxta prompt builder requests and returns a single token chunk.
   - Summarization/memory extraction uses prompt builder requests; memory extraction output is parsed from JSON array, `<memories>...</memories>`, or newline list.
-  - If memory extraction includes a `GRAPH_JSON:` line, it is passed through as a memory item (intended for `GraphMemory` to ingest; other providers may store it as-is).
+  - Graph extraction (separate call): during summarization, runs an additional prompt to produce JSON `{entities, relations}` and emits it as a `GRAPH_JSON:` memory item (intended for `GraphMemory` to ingest).
   - Memory merge is currently a no-op (returns `MemoryMergeResult.Empty`).
 - Tokenization uses `NullTokenizer`; streaming is emulated by returning one `LLMOutputToken` with the full response.
 
@@ -22,6 +22,9 @@ These are module-wide defaults (connection + fallback values). Service settings 
   - `ReplySystemPromptPath`
   - `SummaryPromptPath`
   - `MemoryExtractionPromptPath`
+- Graph extraction:
+  - `EnableGraphExtraction` (default `true`)
+  - `GraphExtractionPromptPath` (default `Resources/Prompts/Default/en/YoloLLM/GraphExtraction.graph.scriban`)
 
 ## Prompt templates
 Editable prompt add-ons are kept in `YoloLLMArtifacts/` and can be deployed to:
@@ -31,6 +34,7 @@ Suggested paths:
 - `Resources/Prompts/Default/en/YoloLLM/ReplySystemAddon.scriban`
 - `Resources/Prompts/Default/en/YoloLLM/SummarizationAddon.scriban`
 - `Resources/Prompts/Default/en/YoloLLM/MemoryExtractionAddon.scriban`
+- `Resources/Prompts/Default/en/YoloLLM/GraphExtraction.graph.scriban`
 - `Resources/Prompts/Default/en/YoloLLM/MemoryExtractionAddon.GraphMemory.scriban` (adds `GRAPH_JSON:` for GraphMemory)
 
 ## Settings presets (Service Settings)

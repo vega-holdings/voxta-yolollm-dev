@@ -17,10 +17,12 @@ namespace Voxta.Modules.YoloLLM.Services;
 
 public class YoloTextGenService(
     IHttpClientFactory httpClientFactory,
+    IInferenceLoggersManager inferenceLoggersManager,
     ILocalEncryptionProvider localEncryptionProvider,
     ILogger<YoloTextGenService> logger
 ) : ServiceBase(logger), ITextGenService
 {
+    private readonly IInferenceLoggersManager _inferenceLoggersManager = inferenceLoggersManager;
     private readonly ILocalEncryptionProvider _localEncryptionProvider = localEncryptionProvider;
     private YoloLlmSettings? _settings;
     private YoloLlmClient? _client;
@@ -76,14 +78,22 @@ public class YoloTextGenService(
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var client = _client ?? throw new InvalidOperationException("Service not initialized");
+        observer.Request ??= new SimpleMessagesDisplayable(request.Messages);
         var text = await client.GenerateAsync(request, cancellationToken);
-        yield return new LLMOutputToken(text);
+        var token = new LLMOutputToken(text);
+        observer.AddToken(token);
+        observer.Done();
+        yield return token;
     }
 
     public async ValueTask<string> GenerateAsync(TextGenGenerateRequest request, InferenceLogger observer, CancellationToken cancellationToken = default)
     {
         var client = _client ?? throw new InvalidOperationException("Service not initialized");
-        return await client.GenerateAsync(request, cancellationToken);
+        observer.Request ??= new SimpleMessagesDisplayable(request.Messages);
+        var text = await client.GenerateAsync(request, cancellationToken);
+        observer.AddToken(new LLMOutputToken(text));
+        observer.Done();
+        return text;
     }
 
     public async IAsyncEnumerable<LLMOutputToken> GenerateReplyAsync(
@@ -94,11 +104,16 @@ public class YoloTextGenService(
         GenerateConstraintRequest constraintRequest,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        using var observer = TryRecord("TextGen");
         var constraints = await GetConstraintsAsync(chat, character, constraintRequest, cancellationToken);
         var request = await promptBuilder.CreateReplyRequest(chat, character, constraints, prefix, cancellationToken);
         request = ApplySystemOverride(request, _replySystemPrompt);
+        if (observer != null) observer.Request = new SimpleMessagesDisplayable(request.Messages);
         var text = await GenerateInternalAsync(request, cancellationToken);
-        yield return new LLMOutputToken(text);
+        var token = new LLMOutputToken(text);
+        observer?.AddToken(token);
+        observer?.Done();
+        yield return token;
     }
 
     public async IAsyncEnumerable<LLMOutputToken> GenerateStoryAsync(
@@ -109,11 +124,16 @@ public class YoloTextGenService(
         GenerateConstraintRequest constraintRequest,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        using var observer = TryRecord("StoryGen");
         var constraints = await GetConstraintsAsync(chat, chat.GetMainCharacter(), constraintRequest, cancellationToken);
         var request = await promptBuilder.CreateStoryWriterRequest(chat, eventDescription, constraints, prefix, cancellationToken);
         request = ApplySystemOverride(request, _replySystemPrompt);
+        if (observer != null) observer.Request = new SimpleMessagesDisplayable(request.Messages);
         var text = await GenerateInternalAsync(request, cancellationToken);
-        yield return new LLMOutputToken(text);
+        var token = new LLMOutputToken(text);
+        observer?.AddToken(token);
+        observer?.Done();
+        yield return token;
     }
 
     public ValueTask<GenerateReplyConstraints> GetConstraintsAsync(
@@ -147,6 +167,19 @@ public class YoloTextGenService(
     {
         var client = _client ?? throw new InvalidOperationException("Service not initialized");
         return await client.GenerateAsync(request, cancellationToken);
+    }
+
+    private InferenceLogger? TryRecord(string actionName)
+    {
+        try
+        {
+            return _inferenceLoggersManager.Record(ServiceType, InstanceSettings.ServiceName, actionName);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "[YoloLLM] Inference logging unavailable for {Action}", actionName);
+            return null;
+        }
     }
 
     private static TextGenGenerateRequest ApplySystemOverride(TextGenGenerateRequest request, string? systemPrompt)

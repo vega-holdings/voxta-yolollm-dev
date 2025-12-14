@@ -21,6 +21,8 @@ public class ModuleConfigurationProvider(
         MaxWindowTokens.Name,
         MaxMemoryTokens.Name,
         MaxSummaryTokens.Name,
+        EnableGraphExtraction.Name,
+        GraphExtractionPromptPath.Name,
         ReplySystemPromptPath.Name,
         SummaryPromptPath.Name,
         MemoryExtractionPromptPath.Name,
@@ -165,6 +167,7 @@ public class ModuleConfigurationProvider(
         Label = "Reply System Prompt (optional)",
         Text = "File path to a system prompt that will be prepended for chat replies/story.",
         Placeholder = "Resources/Prompts/Default/en/YoloLLM/ReplySystemAddon.scriban",
+        DefaultValue = "Resources/Prompts/Default/en/YoloLLM/ReplySystemAddon.scriban",
     };
 
     public static readonly FormTextField SummaryPromptPath = new()
@@ -173,6 +176,7 @@ public class ModuleConfigurationProvider(
         Label = "Summarization Prompt (optional)",
         Text = "File path to a system prompt that will be prepended for summarization.",
         Placeholder = "Resources/Prompts/Default/en/YoloLLM/SummarizationAddon.scriban",
+        DefaultValue = "Resources/Prompts/Default/en/YoloLLM/SummarizationAddon.scriban",
     };
 
     public static readonly FormTextField MemoryExtractionPromptPath = new()
@@ -181,6 +185,24 @@ public class ModuleConfigurationProvider(
         Label = "Memory Extraction Prompt (optional)",
         Text = "File path to a system prompt that will be prepended for memory extraction.",
         Placeholder = "Resources/Prompts/Default/en/YoloLLM/MemoryExtractionAddon.scriban",
+        DefaultValue = "Resources/Prompts/Default/en/YoloLLM/MemoryExtractionAddon.scriban",
+    };
+
+    public static readonly FormBooleanField EnableGraphExtraction = new()
+    {
+        Name = "EnableGraphExtraction",
+        Label = "Enable Graph Extraction (separate LLM call)",
+        Text = "If enabled, YOLOLLM runs an additional LLM call during summarization to extract graph JSON and emits it as a `GRAPH_JSON:` memory item (for GraphMemory to ingest).",
+        DefaultValue = true,
+    };
+
+    public static readonly FormTextField GraphExtractionPromptPath = new()
+    {
+        Name = "GraphExtractionPromptPath",
+        Label = "Graph Extraction Prompt (optional)",
+        Text = "File path to the prompt template used for YOLOLLM's dedicated graph extraction call.",
+        Placeholder = "Resources/Prompts/Default/en/YoloLLM/GraphExtraction.graph.scriban",
+        DefaultValue = "Resources/Prompts/Default/en/YoloLLM/GraphExtraction.graph.scriban",
     };
 
     public Task<FormField[]> GetModuleConfigurationFieldsAsync(
@@ -207,6 +229,8 @@ public class ModuleConfigurationProvider(
             ReplySystemPromptPath,
             SummaryPromptPath,
             MemoryExtractionPromptPath,
+            EnableGraphExtraction,
+            GraphExtractionPromptPath,
             LogLifecycleEvents
         ));
     }

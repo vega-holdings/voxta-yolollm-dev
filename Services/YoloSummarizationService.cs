@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Voxta.Abstractions.Chats.Objects;
 using Voxta.Abstractions.Chats.Objects.Characters;
@@ -21,15 +22,19 @@ namespace Voxta.Modules.YoloLLM.Services;
 
 public class YoloSummarizationService(
     IHttpClientFactory httpClientFactory,
+    IInferenceLoggersManager inferenceLoggersManager,
     ILocalEncryptionProvider localEncryptionProvider,
     ILogger<YoloSummarizationService> logger
 ) : ServiceBase(logger), ISummarizationService
 {
+    private readonly IInferenceLoggersManager _inferenceLoggersManager = inferenceLoggersManager;
     private readonly ILocalEncryptionProvider _localEncryptionProvider = localEncryptionProvider;
+    private readonly ConcurrentDictionary<Guid, ConcurrentQueue<string>> _pendingGraphJsonByChat = new();
     private YoloLlmSettings? _settings;
     private YoloLlmClient? _client;
     private string? _summaryPrompt;
     private string? _memoryExtractionPrompt;
+    private string? _graphExtractionPrompt;
 
     public ITokenizer Tokenizer => NullTokenizer.Instance;
 
@@ -49,6 +54,7 @@ public class YoloSummarizationService(
         _client = new YoloLlmClient(httpClientFactory, logger, _settings);
         _summaryPrompt = LoadPromptSafely(_settings.SummaryPromptPath, "summary");
         _memoryExtractionPrompt = LoadPromptSafely(_settings.MemoryExtractionPromptPath, "memory-extraction");
+        _graphExtractionPrompt = LoadPromptSafely(_settings.GraphExtractionPromptPath, "graph-extraction");
         return Task.CompletedTask;
     }
 
@@ -74,7 +80,13 @@ public class YoloSummarizationService(
         var request = await promptBuilder.CreateSummarizationRequest(chat, messagesToSummarize, cancellationToken);
         request = ApplySystemOverride(request, _summaryPrompt);
         request = ApplySummaryCaps(request);
+        using var observer = TryRecord("Summarization");
+        if (observer != null) observer.Request = new SimpleMessagesDisplayable(request.Messages);
         var result = await GenerateInternalAsync(request, cancellationToken);
+        observer?.AddToken(new LLMOutputToken(result));
+        observer?.Done();
+
+        await MaybeGenerateAndQueueGraphAsync(chat, result, cancellationToken);
 
         if (settings.LogLifecycleEvents)
         {
@@ -96,7 +108,12 @@ public class YoloSummarizationService(
             ],
             MaxNewTokens = _settings?.MaxSummaryTokens ?? 512
         };
-        return await GenerateInternalAsync(request, cancellationToken);
+        using var observer = TryRecord("SpecializedSummarization");
+        if (observer != null) observer.Request = new SimpleMessagesDisplayable(request.Messages);
+        var result = await GenerateInternalAsync(request, cancellationToken);
+        observer?.AddToken(new LLMOutputToken(result));
+        observer?.Done();
+        return result;
     }
 
     public async Task<string> ImagineAsync(
@@ -107,7 +124,12 @@ public class YoloSummarizationService(
         CancellationToken cancellationToken)
     {
         var request = await promptBuilder.CreateImaginePromptGenRequest(chat, userPrompt, instructions, cancellationToken);
-        return await GenerateInternalAsync(request, cancellationToken);
+        using var observer = TryRecord("ImagePromptGen");
+        if (observer != null) observer.Request = new SimpleMessagesDisplayable(request.Messages);
+        var result = await GenerateInternalAsync(request, cancellationToken);
+        observer?.AddToken(new LLMOutputToken(result));
+        observer?.Done();
+        return result;
     }
 
     public async Task<IReadOnlyList<MemoryExtractResult>> ExtractMemoriesAsync(
@@ -128,8 +150,13 @@ public class YoloSummarizationService(
         var request = await promptBuilder.CreateMemoryExtractionRequest(chat, character, messages, cancellationToken);
         request = ApplySystemOverride(request, _memoryExtractionPrompt);
         request = ApplySummaryCaps(request);
+        using var observer = TryRecord("MemoryExtraction");
+        if (observer != null) observer.Request = new SimpleMessagesDisplayable(request.Messages);
         var text = await GenerateInternalAsync(request, cancellationToken);
+        observer?.AddToken(new LLMOutputToken(text));
+        observer?.Done();
         var extracted = ParseMemoryExtractResult(text);
+        extracted = AppendPendingGraphIfPresent(chat.ChatId, extracted);
 
         if (settings.LogLifecycleEvents)
         {
@@ -156,13 +183,164 @@ public class YoloSummarizationService(
         TextGenGenerateRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        observer.Request ??= new SimpleMessagesDisplayable(request.Messages);
         var text = await GenerateInternalAsync(request, cancellationToken);
-        yield return new LLMOutputToken(text);
+        var token = new LLMOutputToken(text);
+        observer.AddToken(token);
+        observer.Done();
+        yield return token;
     }
 
     public async ValueTask<string> GenerateAsync(TextGenGenerateRequest request, InferenceLogger observer, CancellationToken cancellationToken = default)
     {
-        return await GenerateInternalAsync(request, cancellationToken);
+        observer.Request ??= new SimpleMessagesDisplayable(request.Messages);
+        var result = await GenerateInternalAsync(request, cancellationToken);
+        observer.AddToken(new LLMOutputToken(result));
+        observer.Done();
+        return result;
+    }
+
+    private async Task MaybeGenerateAndQueueGraphAsync(IChatInferenceData chat, string summary, CancellationToken cancellationToken)
+    {
+        var settings = _settings ?? throw new InvalidOperationException("Service not initialized");
+        if (!settings.EnableGraphExtraction) return;
+        if (string.IsNullOrWhiteSpace(summary)) return;
+
+        var template = _graphExtractionPrompt;
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            logger.LogDebug("[YoloLLM] Graph extraction enabled but prompt template is not configured.");
+            return;
+        }
+
+        string prompt;
+        try
+        {
+            prompt = BuildGraphPrompt(template, chat, summary);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "[YoloLLM] Graph prompt build failed; skipping graph extraction.");
+            return;
+        }
+
+        try
+        {
+            var request = new TextGenGenerateRequest
+            {
+                Messages =
+                [
+                    new SimpleMessageData { Role = ChatMessageRole.System, Value = prompt },
+                    new SimpleMessageData { Role = ChatMessageRole.User, Value = "Return the JSON only." },
+                ],
+                MaxNewTokens = 768,
+            };
+
+            using var observer = TryRecord("GraphExtraction");
+            if (observer != null) observer.Request = new SimpleMessagesDisplayable(request.Messages);
+
+            var response = await GenerateInternalAsync(request, cancellationToken);
+            observer?.AddToken(new LLMOutputToken(response));
+            observer?.Done();
+
+            var graphJsonLine = TryBuildGraphJsonMemoryLine(response);
+            if (graphJsonLine == null) return;
+
+            var queue = _pendingGraphJsonByChat.GetOrAdd(chat.ChatId, _ => new ConcurrentQueue<string>());
+            queue.Enqueue(graphJsonLine);
+
+            if (settings.LogLifecycleEvents)
+            {
+                logger.LogInformation("[YoloLLM] GraphExtraction queued GRAPH_JSON memory item chatId={ChatId}", chat.ChatId);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // ignore
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "[YoloLLM] Graph extraction call failed; skipping graph output.");
+        }
+    }
+
+    private static string BuildGraphPrompt(string template, IChatInferenceData chat, string input)
+    {
+        var existingNames = chat
+            .GetCharacters()
+            .Select(c => c.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return template
+            .Replace("{{existingEntities}}", string.Join(", ", existingNames))
+            .Replace("{{messages}}", input);
+    }
+
+    private IReadOnlyList<MemoryExtractResult> AppendPendingGraphIfPresent(Guid chatId, IReadOnlyList<MemoryExtractResult> extracted)
+    {
+        if (!_pendingGraphJsonByChat.TryGetValue(chatId, out var queue)) return extracted;
+        if (!queue.TryDequeue(out var graphLine)) return extracted;
+
+        if (queue.IsEmpty) _pendingGraphJsonByChat.TryRemove(chatId, out _);
+
+        var merged = extracted.ToList();
+        merged.Add(new MemoryExtractResult { Index = merged.Count, Text = graphLine });
+        return merged;
+    }
+
+    private InferenceLogger? TryRecord(string actionName)
+    {
+        try
+        {
+            return _inferenceLoggersManager.Record(ServiceType, InstanceSettings.ServiceName, actionName);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "[YoloLLM] Inference logging unavailable for {Action}", actionName);
+            return null;
+        }
+    }
+
+    private static string? TryBuildGraphJsonMemoryLine(string response)
+    {
+        if (string.IsNullOrWhiteSpace(response)) return null;
+
+        var text = StripCodeFences(response);
+        var json = TryExtractJsonObject(text);
+        if (json == null) return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var entitiesCount = root.TryGetProperty("entities", out var ents) && ents.ValueKind == JsonValueKind.Array
+                ? ents.GetArrayLength()
+                : 0;
+            var relationsCount = root.TryGetProperty("relations", out var rels) && rels.ValueKind == JsonValueKind.Array
+                ? rels.GetArrayLength()
+                : 0;
+
+            if (entitiesCount == 0 && relationsCount == 0) return null;
+
+            var compact = JsonSerializer.Serialize(root);
+            return $"GRAPH_JSON: {compact}";
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? TryExtractJsonObject(string text)
+    {
+        var start = text.IndexOf('{');
+        if (start < 0) return null;
+        var end = text.LastIndexOf('}');
+        if (end < start) return null;
+        return text.Substring(start, end - start + 1);
     }
 
     private TextGenGenerateRequest ApplySummaryCaps(TextGenGenerateRequest request)

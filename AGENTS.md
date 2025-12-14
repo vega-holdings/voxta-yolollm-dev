@@ -9,6 +9,7 @@
 - Reply/system for chat replies & story: `ReplySystemPromptPath` (optional file path).
 - Summarization system: `SummaryPromptPath` (optional file path).
 - Memory extraction system: `MemoryExtractionPromptPath` (optional file path).
+- Graph extraction prompt: `GraphExtractionPromptPath` (optional file path).
 - If an override path is empty or missing, it uses the server’s default templates (whatever prompt builder resolves).
 - Prompt add-on templates are kept in `YoloLLMArtifacts/` and are meant to be copied to `Resources/Prompts/Default/en/YoloLLM/` in the server bundle.
 
@@ -28,7 +29,8 @@
 - TextGen: single-shot generation (no true streaming) via chat-completions; returns one `LLMOutputToken` chunk.
 - Summarization: uses builder requests; extraction output parsed from JSON array or newline list; merge is a no-op.
 - Memory extraction parsing supports JSON arrays, default Voxta `<memories>...</memories>` blocks, and newline lists.
-- If the model emits a line starting with `GRAPH_JSON:`, it is passed through as a memory item (intended for the `GraphMemory` provider to ingest and discard from lore).
+- Graph extraction: during summarization, YOLOLLM runs a separate LLM call (prompt `GraphExtractionPromptPath`) and queues a `GRAPH_JSON:` memory item for `GraphMemory` to ingest.
+- Inference logging: uses `IInferenceLoggersManager` so calls should show up under Diagnostics (Summarization/MemoryExtraction/GraphExtraction/TextGen/StoryGen).
 - Tokenizer: `NullTokenizer`.
 
 ## Limitations / TODO

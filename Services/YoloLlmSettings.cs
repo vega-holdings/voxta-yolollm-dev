@@ -21,6 +21,8 @@ internal record YoloLlmSettings
     public string? ReplySystemPromptPath { get; init; }
     public string? SummaryPromptPath { get; init; }
     public string? MemoryExtractionPromptPath { get; init; }
+    public bool EnableGraphExtraction { get; init; }
+    public string? GraphExtractionPromptPath { get; init; }
     public bool LogLifecycleEvents { get; init; }
 }
 
@@ -48,6 +50,8 @@ internal static class YoloLlmSettingsLoader
         var moduleReplySystemPromptPath = moduleConfiguration.GetOptional(ModuleConfigurationProvider.ReplySystemPromptPath);
         var moduleSummaryPromptPath = moduleConfiguration.GetOptional(ModuleConfigurationProvider.SummaryPromptPath);
         var moduleMemoryExtractionPromptPath = moduleConfiguration.GetOptional(ModuleConfigurationProvider.MemoryExtractionPromptPath);
+        var moduleEnableGraphExtraction = moduleConfiguration.GetRequired(ModuleConfigurationProvider.EnableGraphExtraction);
+        var moduleGraphExtractionPromptPath = moduleConfiguration.GetOptional(ModuleConfigurationProvider.GraphExtractionPromptPath);
         var moduleLogLifecycleEvents = moduleConfiguration.GetRequired(ModuleConfigurationProvider.LogLifecycleEvents);
 
         var model = serviceSettings.HasValue(Configuration.ServiceSettingsProvider.Model)
@@ -98,6 +102,14 @@ internal static class YoloLlmSettingsLoader
             ? serviceSettings.GetOptional(Configuration.ServiceSettingsProvider.MemoryExtractionPromptPath)
             : moduleMemoryExtractionPromptPath;
 
+        var enableGraphExtraction = serviceSettings.HasValue(Configuration.ServiceSettingsProvider.EnableGraphExtraction)
+            ? serviceSettings.GetRequired(Configuration.ServiceSettingsProvider.EnableGraphExtraction)
+            : moduleEnableGraphExtraction;
+
+        var graphExtractionPromptPath = serviceSettings.HasValue(Configuration.ServiceSettingsProvider.GraphExtractionPromptPath)
+            ? serviceSettings.GetOptional(Configuration.ServiceSettingsProvider.GraphExtractionPromptPath)
+            : moduleGraphExtractionPromptPath;
+
         var logLifecycleEvents = serviceSettings.HasValue(Configuration.ServiceSettingsProvider.LogLifecycleEvents)
             ? serviceSettings.GetRequired(Configuration.ServiceSettingsProvider.LogLifecycleEvents)
             : moduleLogLifecycleEvents;
@@ -118,6 +130,8 @@ internal static class YoloLlmSettingsLoader
             ReplySystemPromptPath = replySystemPromptPath,
             SummaryPromptPath = summaryPromptPath,
             MemoryExtractionPromptPath = memoryExtractionPromptPath,
+            EnableGraphExtraction = enableGraphExtraction,
+            GraphExtractionPromptPath = graphExtractionPromptPath,
             LogLifecycleEvents = logLifecycleEvents,
         };
     }

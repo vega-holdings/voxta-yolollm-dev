@@ -24,6 +24,8 @@ public class ServiceSettingsProvider(
         ReplySystemPromptPath.Name,
         SummaryPromptPath.Name,
         MemoryExtractionPromptPath.Name,
+        EnableGraphExtraction.Name,
+        GraphExtractionPromptPath.Name,
         LogLifecycleEvents.Name,
     ];
 
@@ -40,6 +42,8 @@ public class ServiceSettingsProvider(
     public static readonly FormTextField ReplySystemPromptPath = new() { Name = "ReplySystemPromptPath", Label = "Reply System Prompt" };
     public static readonly FormTextField SummaryPromptPath = new() { Name = "SummaryPromptPath", Label = "Summarization Prompt" };
     public static readonly FormTextField MemoryExtractionPromptPath = new() { Name = "MemoryExtractionPromptPath", Label = "Memory Extraction Prompt" };
+    public static readonly FormBooleanField EnableGraphExtraction = new() { Name = "EnableGraphExtraction", Label = "Enable Graph Extraction" };
+    public static readonly FormTextField GraphExtractionPromptPath = new() { Name = "GraphExtractionPromptPath", Label = "Graph Extraction Prompt" };
     public static readonly FormBooleanField LogLifecycleEvents = new() { Name = "LogLifecycleEvents", Label = "Log Summary/Memory Events" };
 
     public string? GetDefaultLabel(ServiceTypes serviceType, StaticSettingsSource settings)
@@ -82,6 +86,8 @@ public class ServiceSettingsProvider(
             CreateReplySystemPromptPathField(moduleSettings),
             CreateSummaryPromptPathField(moduleSettings),
             CreateMemoryExtractionPromptPathField(moduleSettings),
+            CreateEnableGraphExtractionField(moduleSettings),
+            CreateGraphExtractionPromptPathField(moduleSettings),
             CreateLogLifecycleEventsField(moduleSettings)
         );
     }
@@ -256,6 +262,29 @@ public class ServiceSettingsProvider(
             Text = "File path to a system prompt that will be prepended for memory extraction (preset override).",
             Placeholder = ModuleConfigurationProvider.MemoryExtractionPromptPath.Placeholder,
             DefaultValue = moduleSettings.GetOptional(ModuleConfigurationProvider.MemoryExtractionPromptPath),
+        };
+    }
+
+    private static FormBooleanField CreateEnableGraphExtractionField(ISettingsSource moduleSettings)
+    {
+        return new FormBooleanField
+        {
+            Name = EnableGraphExtraction.Name,
+            Label = "Enable Graph Extraction",
+            Text = "If enabled, YOLOLLM runs an additional LLM call during summarization to extract graph JSON and emits it as a `GRAPH_JSON:` memory item (preset override).",
+            DefaultValue = moduleSettings.GetRequired(ModuleConfigurationProvider.EnableGraphExtraction),
+        };
+    }
+
+    private static FormTextField CreateGraphExtractionPromptPathField(ISettingsSource moduleSettings)
+    {
+        return new FormTextField
+        {
+            Name = GraphExtractionPromptPath.Name,
+            Label = "Graph Extraction Prompt (optional)",
+            Text = "File path to the prompt template used for YOLOLLM's dedicated graph extraction call (preset override).",
+            Placeholder = ModuleConfigurationProvider.GraphExtractionPromptPath.Placeholder,
+            DefaultValue = moduleSettings.GetOptional(ModuleConfigurationProvider.GraphExtractionPromptPath),
         };
     }
 

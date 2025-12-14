@@ -9,6 +9,7 @@ These files are **read as plain text** and are **prepended as an extra `system` 
 - `SummarizationAddon.scriban` — Optional add-on for summarization.
 - `MemoryExtractionAddon.scriban` — Optional add-on for memory extraction.
 - `MemoryExtractionAddon.GraphMemory.scriban` — Optional add-on that asks the model to also emit a `GRAPH_JSON:` line that the `GraphMemory` module can ingest.
+- `GraphExtraction.graph.scriban` — Prompt template for a dedicated graph extraction call (outputs JSON `{entities, relations}`).
 
 ## Deployment
 Copy these files to the Voxta server bundle:
@@ -18,4 +19,4 @@ Then point the module settings to them (relative to the server root), e.g.:
 - `Resources/Prompts/Default/en/YoloLLM/ReplySystemAddon.scriban`
 - `Resources/Prompts/Default/en/YoloLLM/SummarizationAddon.scriban`
 - `Resources/Prompts/Default/en/YoloLLM/MemoryExtractionAddon.scriban`
-
+- `Resources/Prompts/Default/en/YoloLLM/GraphExtraction.graph.scriban`

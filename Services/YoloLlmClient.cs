@@ -97,9 +97,11 @@ internal class YoloLlmClient(
 
     private object BuildPayload(TextGenGenerateRequest request, out int maxNewTokens)
     {
-        maxNewTokens = request.MaxNewTokens > 0
-            ? Math.Min(request.MaxNewTokens, settings.MaxNewTokens)
-            : settings.MaxNewTokens;
+        // `MaxNewTokens` is the reply cap; `MaxSummaryTokens` is the summarization/memory cap.
+        // Treat the larger of the two as a safety upper-bound, but default to the reply cap when the request doesn't specify.
+        var upperBound = Math.Max(settings.MaxNewTokens, settings.MaxSummaryTokens);
+        var desired = request.MaxNewTokens > 0 ? request.MaxNewTokens : settings.MaxNewTokens;
+        maxNewTokens = Math.Min(desired, upperBound);
 
         return new
         {
