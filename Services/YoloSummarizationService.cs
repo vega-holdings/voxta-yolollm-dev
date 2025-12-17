@@ -1,8 +1,8 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Diagnostics;
-using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Voxta.Abstractions.Chats.Objects;
 using Voxta.Abstractions.Chats.Objects.Characters;
@@ -30,7 +30,6 @@ public class YoloSummarizationService(
 {
     private readonly IInferenceLoggersManager _inferenceLoggersManager = inferenceLoggersManager;
     private readonly ILocalEncryptionProvider _localEncryptionProvider = localEncryptionProvider;
-    private readonly ConcurrentDictionary<Guid, ConcurrentQueue<string>> _pendingGraphJsonByChat = new();
     private YoloLlmSettings? _settings;
     private YoloLlmClient? _client;
     private string? _summaryPrompt;
@@ -157,7 +156,6 @@ public class YoloSummarizationService(
         observer?.AddToken(new LLMOutputToken(text));
         observer?.Done();
         var extracted = ParseMemoryExtractResult(text);
-        extracted = AppendPendingGraphIfPresent(chat.ChatId, extracted);
 
         if (settings.LogLifecycleEvents)
         {
@@ -244,15 +242,39 @@ public class YoloSummarizationService(
             observer?.AddToken(new LLMOutputToken(response));
             observer?.Done();
 
-            var graphJsonLine = TryBuildGraphJsonMemoryLine(chat, response);
-            if (graphJsonLine == null) return;
+            logger.LogDebug(
+                "[YoloLLM] GraphExtraction prompt chatId={ChatId}:{NewLine}{Prompt}",
+                chat.ChatId,
+                Environment.NewLine,
+                prompt);
+            logger.LogDebug(
+                "[YoloLLM] GraphExtraction raw response chatId={ChatId}:{NewLine}{Response}",
+                chat.ChatId,
+                Environment.NewLine,
+                response);
 
-            var queue = _pendingGraphJsonByChat.GetOrAdd(chat.ChatId, _ => new ConcurrentQueue<string>());
-            queue.Enqueue(graphJsonLine);
+            if (!TryBuildGraphJsonMemoryLine(chat, response, out var graphJsonLine, out var entitiesCount, out var relationsCount, out var failureReason))
+            {
+                if (settings.LogLifecycleEvents)
+                {
+                    logger.LogInformation(
+                        "[YoloLLM] GraphExtraction produced no GRAPH_JSON (reason={Reason} entities={Entities} relations={Relations}) chatId={ChatId}",
+                        failureReason, entitiesCount, relationsCount, chat.ChatId);
+                }
+                return;
+            }
+
+            TryWriteGraphMemoryInbox(chat.ChatId, graphJsonLine);
+
+            logger.LogDebug(
+                "[YoloLLM] GraphExtraction GRAPH_JSON payload chatId={ChatId}:{NewLine}{GraphJson}",
+                chat.ChatId,
+                Environment.NewLine,
+                graphJsonLine);
 
             if (settings.LogLifecycleEvents)
             {
-                logger.LogInformation("[YoloLLM] GraphExtraction queued GRAPH_JSON memory item chatId={ChatId}", chat.ChatId);
+                logger.LogInformation("[YoloLLM] GraphExtraction wrote GRAPH_JSON to GraphMemory inbox chatId={ChatId}", chat.ChatId);
             }
         }
         catch (OperationCanceledException)
@@ -274,21 +296,42 @@ public class YoloSummarizationService(
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        return template
-            .Replace("{{existingEntities}}", string.Join(", ", existingNames))
-            .Replace("{{messages}}", input);
+        var prompt = template;
+        prompt = ReplaceTemplateToken(prompt, "existingEntities", string.Join(", ", existingNames));
+        prompt = ReplaceTemplateToken(prompt, "messages", input);
+        return prompt;
     }
 
-    private IReadOnlyList<MemoryExtractResult> AppendPendingGraphIfPresent(Guid chatId, IReadOnlyList<MemoryExtractResult> extracted)
+    private static string ReplaceTemplateToken(string template, string tokenName, string value)
     {
-        if (!_pendingGraphJsonByChat.TryGetValue(chatId, out var queue)) return extracted;
-        if (!queue.TryDequeue(out var graphLine)) return extracted;
+        if (string.IsNullOrEmpty(template)) return template;
+        return Regex.Replace(
+            template,
+            @"\{\{\s*" + Regex.Escape(tokenName) + @"\s*\}\}",
+            _ => value ?? string.Empty,
+            RegexOptions.CultureInvariant);
+    }
 
-        if (queue.IsEmpty) _pendingGraphJsonByChat.TryRemove(chatId, out _);
+    private void TryWriteGraphMemoryInbox(Guid chatId, string graphJsonLine)
+    {
+        try
+        {
+            var inboxDir = Path.Combine(AppContext.BaseDirectory, "Data", "GraphMemory", "Inbox");
+            Directory.CreateDirectory(inboxDir);
 
-        var merged = extracted.ToList();
-        merged.Add(new MemoryExtractResult { Index = merged.Count, Text = graphLine });
-        return merged;
+            var fileName = $"graph_{chatId:N}_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.txt";
+            var tmpPath = Path.Combine(inboxDir, fileName + ".tmp");
+            var finalPath = Path.Combine(inboxDir, fileName);
+
+            File.WriteAllText(tmpPath, graphJsonLine, Encoding.UTF8);
+            File.Move(tmpPath, finalPath, overwrite: true);
+
+            logger.LogDebug("[YoloLLM] Wrote graph update inbox file: {Path}", finalPath);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "[YoloLLM] Failed to write graph update inbox file; graph viewer/context may be stale.");
+        }
     }
 
     private InferenceLogger? TryRecord(string actionName)
@@ -304,98 +347,441 @@ public class YoloSummarizationService(
         }
     }
 
-    private static string? TryBuildGraphJsonMemoryLine(IChatInferenceData chat, string response)
+    private static bool TryBuildGraphJsonMemoryLine(
+        IChatInferenceData chat,
+        string response,
+        out string graphJsonLine,
+        out int entitiesCount,
+        out int relationsCount,
+        out string failureReason)
     {
-        if (string.IsNullOrWhiteSpace(response)) return null;
+        graphJsonLine = string.Empty;
+        entitiesCount = 0;
+        relationsCount = 0;
+        failureReason = "unknown";
+
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            failureReason = "empty_response";
+            return false;
+        }
 
         var text = StripCodeFences(response);
-        var json = TryExtractJsonObject(text);
-        if (json == null) return null;
+        var hasOpenBrace = text.IndexOf('{') >= 0;
+        var sawCandidate = false;
+        var sawValidJson = false;
+        var sawGraphPayload = false;
+        var sawEmptyGraph = false;
 
-        try
+        foreach (var candidate in EnumerateJsonObjectCandidates(text))
         {
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-
-            var hasEntities = root.TryGetProperty("entities", out var ents) && ents.ValueKind == JsonValueKind.Array;
-            var hasRelations = root.TryGetProperty("relations", out var rels) && rels.ValueKind == JsonValueKind.Array;
-            var entitiesCount = hasEntities ? ents.GetArrayLength() : 0;
-            var relationsCount = hasRelations ? rels.GetArrayLength() : 0;
-
-            if (entitiesCount == 0 && relationsCount == 0) return null;
-
-            using var stream = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(stream))
+            sawCandidate = true;
+            try
             {
-                writer.WriteStartObject();
+                using var doc = JsonDocument.Parse(candidate, new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = true,
+                    CommentHandling = JsonCommentHandling.Skip,
+                });
+                sawValidJson = true;
 
-                // Meta is injected by the module (not the LLM) so GraphMemory can scope graph writes
-                // even when Voxta integrates the same memories across multiple character books.
-                writer.WritePropertyName("meta");
-                writer.WriteStartObject();
+                var root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object) continue;
 
-                writer.WriteString("chatId", chat.ChatId);
-                writer.WriteString("sessionId", chat.SessionId);
+                var entities = ExtractEntityItems(root, out var sawEntitiesKey);
+                var relations = ExtractRelationItems(root, out var sawRelationsKey);
+                if (!sawEntitiesKey && !sawRelationsKey && entities.Count == 0 && relations.Count == 0) continue;
+                sawGraphPayload = true;
 
-                writer.WritePropertyName("user");
-                writer.WriteStartObject();
-                writer.WriteString("id", chat.User.Id);
-                writer.WriteString("name", chat.User.Name);
-                writer.WriteEndObject();
+                entitiesCount = entities.Count;
+                relationsCount = relations.Count;
 
-                writer.WritePropertyName("characters");
-                writer.WriteStartArray();
-                foreach (var c in chat.GetCharacters())
+                if (entitiesCount == 0 && relationsCount == 0)
+                {
+                    // Still emit a graph update so GraphMemory can ingest meta (participants/chat scope),
+                    // which is especially important for group chats where a character may join mid-session.
+                    sawEmptyGraph = true;
+                }
+
+                using var stream = new MemoryStream();
+                using (var writer = new Utf8JsonWriter(stream))
                 {
                     writer.WriteStartObject();
-                    writer.WriteString("id", c.Id);
-                    writer.WriteString("name", c.Name);
-                    writer.WriteString("role", c.Role.ToString());
-                    if (!string.IsNullOrWhiteSpace(c.ScenarioRole))
+
+                    // Meta is injected by the module (not the LLM) so GraphMemory can scope graph writes
+                    // even when Voxta integrates the same memories across multiple character books.
+                    writer.WritePropertyName("meta");
+                    writer.WriteStartObject();
+
+                    writer.WriteString("chatId", chat.ChatId);
+                    writer.WriteString("sessionId", chat.SessionId);
+
+                    writer.WritePropertyName("user");
+                    writer.WriteStartObject();
+                    writer.WriteString("id", chat.User.Id);
+                    writer.WriteString("name", chat.User.Name);
+                    writer.WriteEndObject();
+
+                    writer.WritePropertyName("characters");
+                    writer.WriteStartArray();
+                    foreach (var c in chat.GetCharacters())
                     {
-                        writer.WriteString("scenarioRole", c.ScenarioRole);
+                        writer.WriteStartObject();
+                        writer.WriteString("id", c.Id);
+                        writer.WriteString("name", c.Name);
+                        writer.WriteString("role", c.Role.ToString());
+                        if (!string.IsNullOrWhiteSpace(c.ScenarioRole))
+                        {
+                            writer.WriteString("scenarioRole", c.ScenarioRole);
+                        }
+                        writer.WriteEndObject();
                     }
+                    writer.WriteEndArray();
+
+                    writer.WriteEndObject(); // meta
+
+                    writer.WritePropertyName("entities");
+                    writer.WriteStartArray();
+                    foreach (var entity in entities)
+                    {
+                        WriteEntityItem(writer, entity);
+                    }
+                    writer.WriteEndArray();
+
+                    writer.WritePropertyName("relations");
+                    writer.WriteStartArray();
+                    foreach (var relation in relations)
+                    {
+                        WriteRelationItem(writer, relation);
+                    }
+                    writer.WriteEndArray();
+
                     writer.WriteEndObject();
                 }
-                writer.WriteEndArray();
 
-                writer.WriteEndObject(); // meta
+                var compact = Encoding.UTF8.GetString(stream.ToArray());
+                graphJsonLine = $"GRAPH_JSON: {compact}";
+                failureReason = "";
+                return true;
+            }
+            catch (JsonException)
+            {
+                // try next candidate
+            }
+        }
 
-                writer.WritePropertyName("entities");
-                if (hasEntities) ents.WriteTo(writer);
-                else
+        if (sawEmptyGraph)
+        {
+            failureReason = "empty_arrays";
+        }
+
+        if (sawValidJson && !sawGraphPayload)
+        {
+            failureReason = "missing_arrays";
+        }
+        else if (sawCandidate)
+        {
+            failureReason = "invalid_json";
+        }
+        else
+        {
+            failureReason = hasOpenBrace ? "truncated_json" : "no_json_object";
+        }
+
+        return false;
+    }
+
+    private static List<JsonElement> ExtractEntityItems(JsonElement root, out bool sawEntitiesKey)
+    {
+        sawEntitiesKey = TryGetAnyPropertyIgnoreCase(root, ["entities", "characters", "entity"], out var entitiesEl);
+        if (sawEntitiesKey)
+        {
+            return CoerceToList(entitiesEl, IsValidEntityItem);
+        }
+
+        // Heuristic fallback: find the array property that looks most like an entities list.
+        return FindBestArrayProperty(root, IsValidEntityItem);
+    }
+
+    private static List<JsonElement> ExtractRelationItems(JsonElement root, out bool sawRelationsKey)
+    {
+        sawRelationsKey = TryGetAnyPropertyIgnoreCase(root, ["relations", "relationships"], out var relationsEl);
+        if (sawRelationsKey)
+        {
+            return CoerceToList(relationsEl, IsValidRelationItem);
+        }
+
+        // Heuristic fallback: find the array property that looks most like a relations list.
+        return FindBestArrayProperty(root, IsValidRelationItem);
+    }
+
+    private static List<JsonElement> FindBestArrayProperty(JsonElement root, Func<JsonElement, bool> predicate)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return [];
+
+        List<JsonElement> best = [];
+        foreach (var prop in root.EnumerateObject())
+        {
+            if (prop.Value.ValueKind != JsonValueKind.Array) continue;
+            var items = prop.Value.EnumerateArray().Where(predicate).ToList();
+            if (items.Count > best.Count) best = items;
+        }
+        return best;
+    }
+
+    private static List<JsonElement> CoerceToList(JsonElement element, Func<JsonElement, bool> predicate)
+    {
+        var items = new List<JsonElement>();
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                if (predicate(item)) items.Add(item);
+            }
+            return items;
+        }
+
+        if (predicate(element)) items.Add(element);
+        return items;
+    }
+
+    private static bool IsValidEntityItem(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            return !string.IsNullOrWhiteSpace(element.GetString());
+        }
+
+        if (element.ValueKind != JsonValueKind.Object) return false;
+        return TryGetStringPropertyIgnoreCase(element, "name", out var name) && !string.IsNullOrWhiteSpace(name);
+    }
+
+    private static bool IsValidRelationItem(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object) return false;
+        if (!TryGetStringPropertyIgnoreCase(element, "source", out var source) || string.IsNullOrWhiteSpace(source)) return false;
+        if (!TryGetStringPropertyIgnoreCase(element, "target", out var target) || string.IsNullOrWhiteSpace(target)) return false;
+        if (!TryGetStringPropertyIgnoreCase(element, "relation", out var relation) || string.IsNullOrWhiteSpace(relation))
+        {
+            if (!TryGetStringPropertyIgnoreCase(element, "type", out relation) || string.IsNullOrWhiteSpace(relation)) return false;
+        }
+        return true;
+    }
+
+    private static void WriteEntityItem(Utf8JsonWriter writer, JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            var entityName = element.GetString();
+            if (!string.IsNullOrWhiteSpace(entityName)) writer.WriteStringValue(entityName);
+            return;
+        }
+
+        if (element.ValueKind != JsonValueKind.Object) return;
+        if (!TryGetStringPropertyIgnoreCase(element, "name", out var entityNameProp) || string.IsNullOrWhiteSpace(entityNameProp)) return;
+
+        writer.WriteStartObject();
+        writer.WriteString("name", entityNameProp);
+
+        if (TryGetStringPropertyIgnoreCase(element, "type", out var type) && !string.IsNullOrWhiteSpace(type))
+        {
+            writer.WriteString("type", type);
+        }
+
+        if (TryGetStringPropertyIgnoreCase(element, "summary", out var summary) && !string.IsNullOrWhiteSpace(summary))
+        {
+            writer.WriteString("summary", summary);
+        }
+
+        if (TryGetPropertyIgnoreCase(element, "state", out var state) && state.ValueKind == JsonValueKind.Object)
+        {
+            writer.WritePropertyName("state");
+            state.WriteTo(writer);
+        }
+
+        if (TryGetPropertyIgnoreCase(element, "aliases", out var aliases) && aliases.ValueKind == JsonValueKind.Array)
+        {
+            writer.WritePropertyName("aliases");
+            aliases.WriteTo(writer);
+        }
+
+        writer.WriteEndObject();
+    }
+
+    private static void WriteRelationItem(Utf8JsonWriter writer, JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object) return;
+        if (!TryGetStringPropertyIgnoreCase(element, "source", out var source) || string.IsNullOrWhiteSpace(source)) return;
+        if (!TryGetStringPropertyIgnoreCase(element, "target", out var target) || string.IsNullOrWhiteSpace(target)) return;
+
+        string? relation = null;
+        if (TryGetStringPropertyIgnoreCase(element, "relation", out var rel) && !string.IsNullOrWhiteSpace(rel))
+        {
+            relation = rel;
+        }
+        else if (TryGetStringPropertyIgnoreCase(element, "type", out var type) && !string.IsNullOrWhiteSpace(type))
+        {
+            relation = type;
+        }
+
+        if (string.IsNullOrWhiteSpace(relation)) return;
+
+        writer.WriteStartObject();
+        writer.WriteString("source", source);
+        writer.WriteString("target", target);
+        writer.WriteString("relation", relation);
+
+        if (TryGetPropertyIgnoreCase(element, "attributes", out var attributes) && attributes.ValueKind == JsonValueKind.Object)
+        {
+            writer.WritePropertyName("attributes");
+            attributes.WriteTo(writer);
+        }
+
+        writer.WriteEndObject();
+    }
+
+    private static bool TryGetAnyPropertyIgnoreCase(JsonElement obj, string[] names, out JsonElement value)
+    {
+        foreach (var name in names)
+        {
+            if (TryGetPropertyIgnoreCase(obj, name, out value)) return true;
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static bool TryGetStringPropertyIgnoreCase(JsonElement obj, string name, out string? value)
+    {
+        value = null;
+        if (!TryGetPropertyIgnoreCase(obj, name, out var element)) return false;
+        if (element.ValueKind != JsonValueKind.String) return false;
+        value = element.GetString();
+        return true;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement obj, string name, out JsonElement value)
+    {
+        value = default;
+        if (obj.ValueKind != JsonValueKind.Object) return false;
+
+        foreach (var prop in obj.EnumerateObject())
+        {
+            if (prop.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = prop.Value;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<string> EnumerateJsonObjectCandidates(string text)
+    {
+        if (string.IsNullOrEmpty(text)) yield break;
+
+        var inString = false;
+        var escape = false;
+
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (inString)
+            {
+                if (escape)
                 {
-                    writer.WriteStartArray();
-                    writer.WriteEndArray();
+                    escape = false;
+                    continue;
                 }
 
-                writer.WritePropertyName("relations");
-                if (hasRelations) rels.WriteTo(writer);
-                else
+                if (c == '\\')
                 {
-                    writer.WriteStartArray();
-                    writer.WriteEndArray();
+                    escape = true;
+                    continue;
                 }
 
-                writer.WriteEndObject();
+                if (c == '"')
+                {
+                    inString = false;
+                }
+
+                continue;
             }
 
-            var compact = Encoding.UTF8.GetString(stream.ToArray());
-            return $"GRAPH_JSON: {compact}";
-        }
-        catch (JsonException)
-        {
-            return null;
+            if (c == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (c != '{') continue;
+            if (!TryFindMatchingBrace(text, i, out var end)) continue;
+
+            yield return text.Substring(i, end - i + 1);
         }
     }
 
-    private static string? TryExtractJsonObject(string text)
+    private static bool TryFindMatchingBrace(string text, int start, out int end)
     {
-        var start = text.IndexOf('{');
-        if (start < 0) return null;
-        var end = text.LastIndexOf('}');
-        if (end < start) return null;
-        return text.Substring(start, end - start + 1);
+        end = -1;
+        if (start < 0 || start >= text.Length) return false;
+        if (text[start] != '{') return false;
+
+        var depth = 0;
+        var inString = false;
+        var escape = false;
+
+        for (var i = start; i < text.Length; i++)
+        {
+            var c = text[i];
+
+            if (inString)
+            {
+                if (escape)
+                {
+                    escape = false;
+                    continue;
+                }
+
+                if (c == '\\')
+                {
+                    escape = true;
+                    continue;
+                }
+
+                if (c == '"')
+                {
+                    inString = false;
+                }
+
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (c == '{')
+            {
+                depth++;
+                continue;
+            }
+
+            if (c != '}') continue;
+
+            depth--;
+            if (depth == 0)
+            {
+                end = i;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private TextGenGenerateRequest ApplySummaryCaps(TextGenGenerateRequest request)
@@ -475,6 +861,7 @@ public class YoloSummarizationService(
         {
             return memories
                 .Where(l => !string.IsNullOrWhiteSpace(l))
+                .Where(l => !IsGraphJsonLine(l))
                 .Select((line, i) => new MemoryExtractResult { Index = i, Text = line })
                 .ToArray();
         }
@@ -497,7 +884,9 @@ public class YoloSummarizationService(
                     };
                     if (!string.IsNullOrWhiteSpace(value))
                     {
-                        results.Add(new MemoryExtractResult { Index = index++, Text = value!.Trim() });
+                        var trimmed = value!.Trim();
+                        if (IsGraphJsonLine(trimmed)) continue;
+                        results.Add(new MemoryExtractResult { Index = index++, Text = trimmed });
                     }
                 }
                 if (results.Count > 0) return results;
@@ -513,6 +902,7 @@ public class YoloSummarizationService(
             .Where(l => !string.IsNullOrWhiteSpace(l))
             .Where(l => !l.Equals("<memories>", StringComparison.OrdinalIgnoreCase))
             .Where(l => !l.Equals("</memories>", StringComparison.OrdinalIgnoreCase))
+            .Where(l => !IsGraphJsonLine(l))
             .ToArray();
 
         if (lines.Length == 0) return Array.Empty<MemoryExtractResult>();
@@ -520,8 +910,14 @@ public class YoloSummarizationService(
         return lines
             .Select(NormalizeMemoryLine)
             .Where(l => !string.IsNullOrWhiteSpace(l))
+            .Where(l => !IsGraphJsonLine(l!))
             .Select((line, i) => new MemoryExtractResult { Index = i, Text = line! })
             .ToArray();
+    }
+
+    private static bool IsGraphJsonLine(string text)
+    {
+        return text.TrimStart().StartsWith("GRAPH_JSON:", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string StripCodeFences(string text)

@@ -192,7 +192,7 @@ public class ModuleConfigurationProvider(
     {
         Name = "EnableGraphExtraction",
         Label = "Enable Graph Extraction (separate LLM call)",
-        Text = "If enabled, YOLOLLM runs an additional LLM call during summarization to extract graph JSON and emits it as a `GRAPH_JSON:` memory item (for GraphMemory to ingest).",
+        Text = "If enabled, YOLOLLM runs an additional LLM call during summarization to extract graph JSON and writes it to the GraphMemory inbox (`Data/GraphMemory/Inbox`) for ingestion (without polluting long-term memory books).",
         DefaultValue = true,
     };
 

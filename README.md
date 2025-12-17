@@ -7,7 +7,7 @@ Experiment to ship a Voxta module that brings its own OpenAI-compatible LLM clie
   - Implements `ITextGenService` and `ISummarizationService`:
   - Reply/story generation uses Voxta prompt builder requests and returns a single token chunk.
   - Summarization/memory extraction uses prompt builder requests; memory extraction output is parsed from JSON array, `<memories>...</memories>`, or newline list.
-  - Graph extraction (separate call): during summarization, runs an additional prompt to produce JSON `{entities, relations}` and emits it as a `GRAPH_JSON:` memory item (includes `meta.chatId/sessionId/user/characters` for scoping; intended for `GraphMemory` to ingest).
+  - Graph extraction (separate call): during summarization, runs an additional prompt to produce JSON `{entities, relations}` and writes it to the GraphMemory inbox (`Data/GraphMemory/Inbox`) for ingestion (includes `meta.chatId/sessionId/user/characters` for scoping).
   - Memory merge is currently a no-op (returns `MemoryMergeResult.Empty`).
 - Tokenization uses `NullTokenizer`; streaming is emulated by returning one `LLMOutputToken` with the full response.
 
@@ -35,7 +35,7 @@ Suggested paths:
 - `Resources/Prompts/Default/en/YoloLLM/SummarizationAddon.scriban`
 - `Resources/Prompts/Default/en/YoloLLM/MemoryExtractionAddon.scriban`
 - `Resources/Prompts/Default/en/YoloLLM/GraphExtraction.graph.scriban`
-- `Resources/Prompts/Default/en/YoloLLM/MemoryExtractionAddon.GraphMemory.scriban` (adds `GRAPH_JSON:` for GraphMemory)
+- (Legacy) `Resources/Prompts/Default/en/YoloLLM/MemoryExtractionAddon.GraphMemory.scriban` (old approach that embedded `GRAPH_JSON:` into memory extraction output; no longer needed with inbox ingestion).
 
 ## Settings presets (Service Settings)
 This module now supports Voxta **Service Settings** presets. In Voxta, summarization/action-inference share the same preset bucket as TextGen, so a single preset controls both reply generation and summarization behavior for this module.
