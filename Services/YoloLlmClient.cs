@@ -13,6 +13,7 @@ internal class YoloLlmClient(
     YoloLlmSettings settings)
 {
     private bool _didWarnKeyNormalized;
+    private bool _didWarnNoKey;
 
     public async Task<string> GenerateAsync(TextGenGenerateRequest request, CancellationToken cancellationToken)
     {
@@ -22,11 +23,16 @@ internal class YoloLlmClient(
         var apiKey = NormalizeApiKey(settings.ApiKey);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            logger.LogError("YOLO LLM ApiKey is empty; check module configuration.");
-            throw new InvalidOperationException("YOLO LLM ApiKey is empty.");
+            if (!_didWarnNoKey)
+            {
+                _didWarnNoKey = true;
+                logger.LogInformation("YOLO LLM ApiKey is empty; sending requests without Authorization header.");
+            }
         }
-
-        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        else
+        {
+            message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        }
 
         var payload = BuildPayload(request, out var usedMaxTokens);
         var json = JsonSerializer.Serialize(payload);

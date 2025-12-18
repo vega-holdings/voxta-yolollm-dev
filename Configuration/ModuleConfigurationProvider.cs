@@ -33,8 +33,8 @@ public class ModuleConfigurationProvider(
     {
         Name = "ApiKey",
         Label = "API Key",
-        Text = "API key/token for the OpenAI-compatible endpoint (paste the raw token; no quotes; no `Bearer ` prefix).",
-        Required = true,
+        Text = "API key/token for the OpenAI-compatible endpoint (optional for local/unauthed endpoints; paste the raw token; no quotes; no `Bearer ` prefix).",
+        Required = false,
     };
 
     public static readonly FormTextField BaseUrl = new()

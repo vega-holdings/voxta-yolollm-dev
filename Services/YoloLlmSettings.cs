@@ -7,7 +7,7 @@ namespace Voxta.Modules.YoloLLM.Services;
 
 internal record YoloLlmSettings
 {
-    public required string ApiKey { get; init; }
+    public string? ApiKey { get; init; }
     public required string BaseUrl { get; init; }
     public required string Model { get; init; }
     public double Temperature { get; init; }
@@ -33,7 +33,7 @@ internal static class YoloLlmSettingsLoader
         ISettingsSource serviceSettings,
         ILocalEncryptionProvider localEncryptionProvider)
     {
-        var encryptedApiKey = moduleConfiguration.GetRequired(ModuleConfigurationProvider.ApiKey);
+        var encryptedApiKey = moduleConfiguration.GetOptional(ModuleConfigurationProvider.ApiKey);
         var apiKey = TryDecrypt(localEncryptionProvider, encryptedApiKey);
 
         var moduleModel = moduleConfiguration.GetRequired(ModuleConfigurationProvider.Model);
@@ -116,7 +116,7 @@ internal static class YoloLlmSettingsLoader
 
         return new YoloLlmSettings
         {
-            ApiKey = apiKey,
+            ApiKey = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey,
             BaseUrl = moduleConfiguration.GetRequired(ModuleConfigurationProvider.BaseUrl),
             Model = model,
             Temperature = temperature,
@@ -136,9 +136,9 @@ internal static class YoloLlmSettingsLoader
         };
     }
 
-    private static string TryDecrypt(ILocalEncryptionProvider localEncryptionProvider, string value)
+    private static string TryDecrypt(ILocalEncryptionProvider localEncryptionProvider, string? value)
     {
-        if (string.IsNullOrEmpty(value)) return value;
+        if (string.IsNullOrEmpty(value)) return string.Empty;
         try
         {
             return localEncryptionProvider.Decrypt(value);

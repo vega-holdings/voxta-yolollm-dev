@@ -3,7 +3,7 @@
 Experiment to ship a Voxta module that brings its own OpenAI-compatible LLM client instead of relying on the server’s built-in chat LLM. It registers both `TextGen` and `Summarization` services.
 
 ## What it does
-  - Calls a configurable chat-completions endpoint (`BaseUrl`, `Model`, `ApiKey`) with a simple OpenAI-like payload.
+  - Calls a configurable chat-completions endpoint (`BaseUrl`, `Model`, optional `ApiKey`) with a simple OpenAI-like payload.
   - Implements `ITextGenService` and `ISummarizationService`:
   - Reply/story generation uses Voxta prompt builder requests and returns a single token chunk.
   - Summarization/memory extraction uses prompt builder requests; memory extraction output is parsed from JSON array, `<memories>...</memories>`, or newline list.
@@ -14,7 +14,7 @@ Experiment to ship a Voxta module that brings its own OpenAI-compatible LLM clie
 ## Configuration fields
 These are module-wide defaults (connection + fallback values). Service settings presets (below) override them when set.
 
-- `ApiKey` (secret), `BaseUrl`, `Model`
+- `ApiKey` (secret, optional for local/unauthed endpoints), `BaseUrl`, `Model`
 - `Temperature`, `MaxNewTokens`, `MaxWindowTokens`, `MaxMemoryTokens`
 - `MaxSummaryTokens`, `SummarizationDigestRatio`, `SummarizationTriggerMessagesBuffer`, `KeepLastMessages`
 - `LogLifecycleEvents` (default `true`) — logs when summarization/memory extraction run
@@ -50,7 +50,7 @@ Preset overrides include:
 ## Usage
 1) `dotnet build -c Release`
 2) Copy `bin/Release/net10.0/Voxta.Modules.YoloLLM.dll` to `Voxta.Server.../Modules/`.
-3) In Voxta UI, enable the module and select `YoloLLM` for TextGen and/or Summarization. Provide API key, base URL, model.
+3) In Voxta UI, enable the module and select `YoloLLM` for TextGen and/or Summarization. Provide base URL + model (API key only if the endpoint requires auth).
 
 ### OpenRouter quick setup
 - `BaseUrl`: `https://openrouter.ai/api/v1/chat/completions`

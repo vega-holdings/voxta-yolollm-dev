@@ -14,7 +14,7 @@
 - Prompt add-on templates are kept in `YoloLLMArtifacts/` and are meant to be copied to `Resources/Prompts/Default/en/YoloLLM/` in the server bundle.
 
 ## Configuration Fields (UI)
-- Auth/endpoint: `ApiKey` (secret), `BaseUrl`, `Model`
+- Auth/endpoint: `ApiKey` (secret, optional for local/unauthed endpoints), `BaseUrl`, `Model`
 - Generation caps: `Temperature`, `MaxNewTokens`, `MaxWindowTokens`, `MaxMemoryTokens`
 - Summaries: `MaxSummaryTokens`, `SummarizationDigestRatio`, `SummarizationTriggerMessagesBuffer`, `KeepLastMessages`
 - Observability: `LogLifecycleEvents` (default true) logs start/end for summarization + memory extraction
