@@ -271,7 +271,7 @@ public class ServiceSettingsProvider(
         {
             Name = EnableGraphExtraction.Name,
             Label = "Enable Graph Extraction",
-            Text = "If enabled, YOLOLLM runs an additional LLM call during summarization to extract graph JSON and writes it to the GraphMemory inbox (`Data/GraphMemory/Inbox`) (preset override).",
+            Text = "If enabled, YOLOLLM runs an additional LLM call during summarization to extract graph JSON and emits it as a `GRAPH_JSON:` memory item (preset override).",
             DefaultValue = moduleSettings.GetRequired(ModuleConfigurationProvider.EnableGraphExtraction),
         };
     }
